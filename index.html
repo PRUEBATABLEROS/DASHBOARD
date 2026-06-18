@@ -171,6 +171,26 @@
   .pill.bad{background:rgba(240,167,60,0.14);color:var(--amber);}
   .swatch{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;}
 
+  /* ---------- Line comparison table ---------- */
+  #lineCompareTable tbody td{padding:13px 14px;}
+  #lineCompareTable tbody td:first-child{font-size:13.5px;}
+  .cmp-value{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:16px;color:var(--text);white-space:nowrap;}
+  .cmp-value .unit{font-size:11px;color:var(--muted);font-weight:500;}
+  .cmp-delta{font-size:10.5px;margin-top:4px;font-family:'IBM Plex Mono',monospace;white-space:nowrap;}
+  .cmp-delta.good{color:var(--teal);}
+  .cmp-delta.bad{color:var(--amber);}
+  .cmp-delta.neutral{color:var(--muted-2);}
+  #lineCompareTable tfoot td{
+    padding:11px 14px;border-top:1px solid var(--hairline);background:var(--panel-2);
+    color:var(--muted);font-size:12px;line-height:1.6;
+  }
+  #lineCompareTable tfoot td:first-child{
+    font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.06em;
+    color:var(--muted-2);text-transform:uppercase;
+  }
+  #lineCompareTable tfoot td b{color:var(--brass);font-family:'IBM Plex Mono',monospace;font-weight:600;}
+  #lineCompareTable tfoot td .gapval{color:var(--brass);}
+
   /* ---------- Recommendations ---------- */
   .reco-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;}
   .reco-card{
@@ -243,6 +263,32 @@
       </div>
     </div>
   </header>
+
+  <section style="margin:26px 0 0;">
+    <div class="section-head">
+      <div class="section-head-block">
+        <span class="num">00</span><h2>Comparativo por línea naviera</h2>
+        <p class="desc">Las cuatro métricas clave una frente a otra, con la variación de cada línea respecto al promedio de las tres y la brecha entre la mejor y la peor.</p>
+      </div>
+    </div>
+    <div class="panel">
+      <div style="overflow-x:auto;">
+        <table id="lineCompareTable">
+          <thead>
+            <tr>
+              <th>Línea naviera</th>
+              <th class="num">Rendimiento promedio</th>
+              <th class="num">Cumplimiento contractual</th>
+              <th class="num">Demora no facturable</th>
+              <th class="num">Pallets movilizados</th>
+            </tr>
+          </thead>
+          <tbody id="lineCompareBody"></tbody>
+          <tfoot id="lineCompareFoot"></tfoot>
+        </table>
+      </div>
+    </div>
+  </section>
 
   <div class="kpi-grid" id="kpiGrid"></div>
 
@@ -470,6 +516,64 @@ function renderKPIs(){
       <p class="sub">${k.sub}</p>
     </div>
   `).join('');
+}
+
+// ================= 00 LINE COMPARISON =================
+function renderLineCompare(){
+  // Respects the period filter (so you can compare lines within a quarter),
+  // but always shows all lines side by side regardless of the line filter.
+  const rows = state.quarter==='all' ? RAW : RAW.filter(r=>String(r.Quarter)===state.quarter);
+
+  const stats = LINES.map(line=>{
+    const sub = rows.filter(r=>r.Line===line);
+    return {
+      line,
+      avgPerf: avg(sub,'Performance'),
+      compliance: 100*sub.filter(r=>r.Performance>=CONTRACT_MIN).length/sub.length,
+      delayHrs: sum(sub,'DelayTotal'),
+      pallets: sum(sub,'Pallets')
+    };
+  });
+
+  const refAvg = key => stats.reduce((a,s)=>a+s[key],0)/stats.length;
+  const refs = { avgPerf: refAvg('avgPerf'), compliance: refAvg('compliance'), delayHrs: refAvg('delayHrs'), pallets: refAvg('pallets') };
+
+  function cell(value, key, fmt, unit, higherIsBad){
+    const ref = refs[key];
+    const d = ref ? 100*(value-ref)/ref : 0;
+    const dirGood = higherIsBad ? d<=0 : d>=0;
+    const cls = Math.abs(d) < 0.5 ? 'neutral' : (dirGood ? 'good':'bad');
+    const arrow = d>0.05 ? '▲' : (d<-0.05 ? '▼' : '—');
+    return `<div class="cmp-value">${fmt(value)} <span class="unit">${unit}</span></div>
+            <div class="cmp-delta ${cls}">${arrow} ${d>=0?'+':''}${fmt1(d)}% vs. prom. 3 líneas</div>`;
+  }
+
+  document.getElementById('lineCompareBody').innerHTML = stats.map(s=>`
+    <tr>
+      <td><span class="swatch" style="background:${LINE_COLORS[s.line]}"></span><b>${LINE_LABELS[s.line]}</b></td>
+      <td class="num">${cell(s.avgPerf,'avgPerf',fmt1,'pph',false)}</td>
+      <td class="num">${cell(s.compliance,'compliance',fmt1,'%',false)}</td>
+      <td class="num">${cell(s.delayHrs,'delayHrs',fmt0,'h',true)}</td>
+      <td class="num">${cell(s.pallets,'pallets',fmt0,'pal.',false)}</td>
+    </tr>
+  `).join('');
+
+  function gapRow(key, fmt, unit){
+    const sorted = [...stats].sort((a,b)=>b[key]-a[key]);
+    const top = sorted[0], bottom = sorted[sorted.length-1];
+    const gapPct = bottom[key] ? 100*(top[key]-bottom[key])/bottom[key] : 0;
+    return `<span class="gapval">${LINE_LABELS[top.line]} ${fmt(top[key])}${unit}</span> vs <span class="gapval">${LINE_LABELS[bottom.line]} ${fmt(bottom[key])}${unit}</span><br>diferencia: ${fmt1(gapPct)}%`;
+  }
+
+  document.getElementById('lineCompareFoot').innerHTML = `
+    <tr>
+      <td>Brecha entre líneas</td>
+      <td>${gapRow('avgPerf', fmt1, ' pph')}</td>
+      <td>${gapRow('compliance', fmt1, '%')}</td>
+      <td>${gapRow('delayHrs', fmt0, 'h')}</td>
+      <td>${gapRow('pallets', fmt0, ' pal.')}</td>
+    </tr>
+  `;
 }
 
 // ================= 01 TREND CHART =================
@@ -784,6 +888,7 @@ function renderRecommendations(){
 
 // ================= EVENTS =================
 function renderAll(){
+  renderLineCompare();
   renderKPIs();
   renderTrendChart();
   renderLineDevChart();
