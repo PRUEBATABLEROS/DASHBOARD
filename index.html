@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dashboard Cubrimiento OTT GQ Simulado con los datos del 2025</title>
+<title>Dashboard Cubrimiento OTT GQ</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 <style>
@@ -261,7 +261,7 @@
 <body>
 
 <header>
-  <h1>Dashboard de Cubrimiento — OTT GQ</h1>
+  <h1>Dashboard de Cubrimiento — OTT GQ Simulado con la muestra del 2025</h1>
   <p>Flota de 11 camiones refrigerados · Capacidad total: <strong>2.580 FBE</strong> · Aeropuerto BOG + Rutas MVCS + OTT-A MDE</p>
 </header>
 
@@ -692,7 +692,16 @@ function createOverlappedChart(canvasId, data, options) {
 }
 
 function updateChart(key) {
-  const data = getDataForView(key, currentViews[key]);
+  const view = currentViews[key];
+  const data = getDataForView(key, view);
+
+  // Calcular yMax dinámico según los datos (más margen del 15%)
+  const maxFbe = Math.max(...data.map(r => r[1]));
+  const rawMax = maxFbe * 1.15;
+  // Redondear al siguiente múltiplo "bonito" (100, 500, 1000, 5000...)
+  const step = rawMax > 10000 ? 5000 : rawMax > 5000 ? 1000 : 500;
+  const dynamicYMax = Math.ceil(rawMax / step) * step;
+
   const configs = {
     bog: {
       barColor: '#1a56db',
@@ -728,7 +737,12 @@ function updateChart(key) {
   if (charts[key]) {
     charts[key].destroy();
   }
-  charts[key] = createOverlappedChart('chart' + key.charAt(0).toUpperCase() + key.slice(1), data, configs[key]);
+  // Para vista diaria usamos el límite fijo; para semana/mes usamos el dinámico
+  const cfg = { ...configs[key] };
+  if (view !== 'day') {
+    cfg.yMax = dynamicYMax;
+  }
+  charts[key] = createOverlappedChart('chart' + key.charAt(0).toUpperCase() + key.slice(1), data, cfg);
 }
 
 // ======================= INICIALIZACIÓN =======================
